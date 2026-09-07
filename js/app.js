@@ -782,7 +782,7 @@
           <div class="history-title">📄 ${escapeHtml(item.title)}</div>
           <div class="history-meta">${escapeHtml(item.details)}</div>
         </div>
-        <div style="font-size: 0.75rem; color: var(--text-muted);">${escapeHtml(item.timestamp)}</div>
+        <div style="font-size: 0.82rem; color: var(--text-muted);">${escapeHtml(item.timestamp)}</div>
       `;
       historyList.appendChild(div);
     });
@@ -860,7 +860,7 @@
     const sourceId = selectSourceGroup.value;
 
     if (targetId === sourceId) {
-      mappingList.innerHTML = `<div style="color: #fb7185; font-size: 0.85rem; padding: 0.5rem;">서로 다른 두 개의 규격을 선택해 주세요.</div>`;
+      mappingList.innerHTML = `<div style="color: #fb7185; font-size: 0.9rem; padding: 0.5rem;">서로 다른 두 개의 규격을 선택해 주세요.</div>`;
       return;
     }
 
