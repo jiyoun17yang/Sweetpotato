@@ -1,5 +1,5 @@
 /**
- * App.js - UI 컨트롤러 및 인터랙션 핸들러
+ * App.js - UI 컨트롤러 및 인터랙션 핸들러 (v2.0)
  */
 
 (function() {
@@ -7,41 +7,60 @@
 
   // 애플리케이션 상태
   const state = {
-    rawFiles: [],        // File[]
-    parsedFiles: [],     // ExcelMerger parsed results
-    groups: [],          // Schema groups
-    activeGroupId: null, // Currently selected group for preview
-    previewSearch: '',   // Search filter text
-    currentPage: 1,      // Pagination page
-    pageSize: 25,        // Rows per page
+    rawFiles: [],
+    parsedFiles: [],
+    groups: [],
+    activeGroupId: null,
+    activeMainTab: 'preview', // 'preview', 'health', 'history'
+    previewSearch: '',
+    currentPage: 1,
+    pageSize: 25,
     options: {
       matchMode: 'exact',
       headerRowIndex: 0,
+      dedupKeyColumn: '',
       addSourceColumn: true,
       removeDuplicates: false,
+      autoFormatPhone: true,
+      standardizeDate: true,
       trimWhitespace: true,
       skipEmptyRows: true
-    }
+    },
+    history: []
   };
 
-  // DOM 요소 캐싱
+  // DOM 캐싱
   const dropZone = document.getElementById('dropZone');
   const fileInput = document.getElementById('fileInput');
   const btnSelectFiles = document.getElementById('btnSelectFiles');
-  const btnLoadSample = document.getElementById('btnLoadSample');
   const selectMatchMode = document.getElementById('selectMatchMode');
   const selectHeaderRow = document.getElementById('selectHeaderRow');
+  const selectDedupKey = document.getElementById('selectDedupKey');
   const chkAddSource = document.getElementById('chkAddSource');
   const chkRemoveDups = document.getElementById('chkRemoveDups');
+  const chkFormatPhone = document.getElementById('chkFormatPhone');
+  const chkStandardizeDate = document.getElementById('chkStandardizeDate');
   const chkTrimText = document.getElementById('chkTrimText');
+  
+  const panelEmptyGuide = document.getElementById('panelEmptyGuide');
+  const panelLoadedHealth = document.getElementById('panelLoadedHealth');
+  const metricTotalCells = document.getElementById('metricTotalCells');
+  const metricValidCells = document.getElementById('metricValidCells');
+  const metricEmptyCells = document.getElementById('metricEmptyCells');
+  const healthOverallBadge = document.getElementById('healthOverallBadge');
+  const healthColumnsList = document.getElementById('healthColumnsList');
+
   const dashboardSection = document.getElementById('dashboardSection');
   const statTotalFiles = document.getElementById('statTotalFiles');
   const statTotalGroups = document.getElementById('statTotalGroups');
   const statTotalRows = document.getElementById('statTotalRows');
+  const statDupRows = document.getElementById('statDupRows');
   const btnResetAll = document.getElementById('btnResetAll');
   const btnDownloadAllZip = document.getElementById('btnDownloadAllZip');
+  const btnOpenMappingModal = document.getElementById('btnOpenMappingModal');
   const groupsCountBadge = document.getElementById('groupsCountBadge');
   const groupsGrid = document.getElementById('groupsGrid');
+
   const previewTabs = document.getElementById('previewTabs');
   const previewSearchInput = document.getElementById('previewSearchInput');
   const previewPageSize = document.getElementById('previewPageSize');
@@ -51,9 +70,50 @@
   const paginationPages = document.getElementById('paginationPages');
   const toastContainer = document.getElementById('toastContainer');
 
-  // 이벤트 리스너 초기화
+  const tabContentPreview = document.getElementById('tabContentPreview');
+  const tabContentHealth = document.getElementById('tabContentHealth');
+  const tabContentHistory = document.getElementById('tabContentHistory');
+  const healthTableBody = document.getElementById('healthTableBody');
+  const historyList = document.getElementById('historyList');
+
+  // 모달 요소
+  const modalSchemaMapping = document.getElementById('modalSchemaMapping');
+  const btnCloseModal = document.getElementById('btnCloseModal');
+  const btnCancelMapping = document.getElementById('btnCancelMapping');
+  const btnApplyMapping = document.getElementById('btnApplyMapping');
+  const selectTargetGroup = document.getElementById('selectTargetGroup');
+  const selectSourceGroup = document.getElementById('selectSourceGroup');
+  const mappingList = document.getElementById('mappingList');
+
+  // 로컬 스토리지 히스토리 로드
+  function loadHistory() {
+    try {
+      const saved = localStorage.getItem('excel_merger_history');
+      if (saved) state.history = JSON.parse(saved);
+    } catch (e) {
+      state.history = [];
+    }
+  }
+
+  function addHistoryItem(title, details) {
+    const item = {
+      id: Date.now(),
+      title,
+      details,
+      timestamp: new Date().toLocaleString()
+    };
+    state.history.unshift(item);
+    if (state.history.length > 20) state.history.pop();
+    try {
+      localStorage.setItem('excel_merger_history', JSON.stringify(state.history));
+    } catch (e) {}
+    renderHistoryTab();
+  }
+
+  // 초기 이벤트 리스너
   function initEvents() {
-    // 파일 선택 버튼 클릭
+    loadHistory();
+
     btnSelectFiles.addEventListener('click', (e) => {
       e.stopPropagation();
       fileInput.click();
@@ -63,15 +123,13 @@
       fileInput.click();
     });
 
-    // 파일 입력 변경
     fileInput.addEventListener('change', (e) => {
       if (e.target.files && e.target.files.length > 0) {
         handleNewFiles(Array.from(e.target.files));
-        fileInput.value = ''; // 동일 파일 재선택 가능하게 리셋
+        fileInput.value = '';
       }
     });
 
-    // 드래그 앤 드롭
     ['dragenter', 'dragover'].forEach(eventName => {
       dropZone.addEventListener(eventName, (e) => {
         e.preventDefault();
@@ -95,10 +153,13 @@
       }
     });
 
-    // 샘플 데이터 즉시 체험 버튼
-    btnLoadSample.addEventListener('click', (e) => {
-      e.stopPropagation();
-      loadSampleData();
+    // 샘플 프리셋 칩 버튼들
+    document.querySelectorAll('.btn-preset').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const preset = btn.dataset.preset;
+        loadSamplePreset(preset);
+      });
     });
 
     // 옵션 변경 이벤트
@@ -114,6 +175,12 @@
       showToast(`헤더 기준 행이 ${state.options.headerRowIndex + 1}번째 행으로 변경되었습니다.`, 'info');
     });
 
+    selectDedupKey.addEventListener('change', () => {
+      state.options.dedupKeyColumn = selectDedupKey.value;
+      renderAll();
+      showToast(state.options.dedupKeyColumn ? `'${state.options.dedupKeyColumn}' 컬럼 기준으로 중복 행을 검사합니다.` : '전체 컬럼 내용 기준으로 중복 검사합니다.', 'info');
+    });
+
     chkAddSource.addEventListener('change', () => {
       state.options.addSourceColumn = chkAddSource.checked;
       renderPreview();
@@ -122,12 +189,34 @@
     chkRemoveDups.addEventListener('change', () => {
       state.options.removeDuplicates = chkRemoveDups.checked;
       renderAll();
-      showToast(chkRemoveDups.checked ? '중복 행 자동 제거가 활성화되었습니다.' : '중복 행 자동 제거가 비활성화되었습니다.', 'info');
+      showToast(chkRemoveDups.checked ? '중복 행 자동 제거가 활성화되었습니다.' : '중복 행 제거가 해제되었습니다.', 'info');
+    });
+
+    chkFormatPhone.addEventListener('change', async () => {
+      state.options.autoFormatPhone = chkFormatPhone.checked;
+      await reParseFiles();
+      showToast(chkFormatPhone.checked ? '전화번호 하이픈(-) 자동 통일이 적용되었습니다.' : '전화번호 자동 통일이 해제되었습니다.', 'info');
+    });
+
+    chkStandardizeDate.addEventListener('change', async () => {
+      state.options.standardizeDate = chkStandardizeDate.checked;
+      await reParseFiles();
+      showToast(chkStandardizeDate.checked ? '날짜 포맷 표준화(YYYY-MM-DD)가 적용되었습니다.' : '날짜 표준화가 해제되었습니다.', 'info');
     });
 
     chkTrimText.addEventListener('change', async () => {
       state.options.trimWhitespace = chkTrimText.checked;
       await reParseFiles();
+    });
+
+    // 메인 탭 전환
+    document.querySelectorAll('.main-tab-btn').forEach(tabBtn => {
+      tabBtn.addEventListener('click', () => {
+        document.querySelectorAll('.main-tab-btn').forEach(b => b.classList.remove('active'));
+        tabBtn.classList.add('active');
+        state.activeMainTab = tabBtn.dataset.tab;
+        switchMainTab(state.activeMainTab);
+      });
     });
 
     // 초기화 버튼
@@ -150,11 +239,37 @@
       renderPreviewTableOnly();
     });
 
-    // 미리보기 페이지 크기 변경
+    // 페이지 크기 변경
     previewPageSize.addEventListener('change', (e) => {
       state.pageSize = parseInt(e.target.value, 10);
       state.currentPage = 1;
       renderPreviewTableOnly();
+    });
+
+    // FAQ 아코디언 토글
+    document.querySelectorAll('.faq-question').forEach(q => {
+      q.addEventListener('click', () => {
+        const item = q.closest('.faq-item');
+        item.classList.toggle('open');
+      });
+    });
+
+    // 수동 규격 통합 모달
+    btnOpenMappingModal.addEventListener('click', () => {
+      openMappingModal();
+    });
+
+    [btnCloseModal, btnCancelMapping].forEach(btn => {
+      btn.addEventListener('click', () => {
+        modalSchemaMapping.style.display = 'none';
+      });
+    });
+
+    selectTargetGroup.addEventListener('change', updateMappingRows);
+    selectSourceGroup.addEventListener('change', updateMappingRows);
+
+    btnApplyMapping.addEventListener('click', () => {
+      applySchemaMapping();
     });
   }
 
@@ -171,7 +286,6 @@
       return;
     }
 
-    // 중복 파일명 방지 및 추가
     const existingNames = new Set(state.rawFiles.map(f => f.name));
     let addedCount = 0;
 
@@ -187,45 +301,73 @@
       return;
     }
 
-    showToast(`${addedCount}개 파일이 성공적으로 추가되었습니다. 분석 중...`, 'success');
+    showToast(`${addedCount}개 파일이 성공적으로 추가되었습니다.`, 'success');
     await reParseFiles();
   }
 
-  // 샘플 데이터 로드
-  async function loadSampleData() {
+  // 샘플 프리셋 로드
+  async function loadSamplePreset(presetType) {
     try {
-      const sampleFiles = ExcelMerger.generateSampleFiles();
+      const sampleFiles = ExcelMerger.generatePresets(presetType);
       state.rawFiles = [...sampleFiles];
-      showToast('테스트용 4개 샘플 파일(2개 규격)이 로드되었습니다!', 'success');
+      const titles = {
+        order: '쇼핑몰 주문 내역 (2규격 4개 파일)',
+        inventory: '물류 재고 현황 (1규격 2개 파일)',
+        survey: '고객 설문조사 (동의어 매핑 테스트용 2개 파일)'
+      };
+      showToast(`'${titles[presetType] || presetType}' 샘플이 로드되었습니다!`, 'success');
       await reParseFiles();
     } catch (err) {
       console.error(err);
-      showToast('샘플 파일을 생성하는 중 오류가 발생했습니다.', 'error');
+      showToast('샘플을 불러오는 중 오류가 발생했습니다.', 'error');
     }
   }
 
   // 파일 재파싱
   async function reParseFiles() {
     if (state.rawFiles.length === 0) {
-      dashboardSection.style.display = 'none';
+      resetApp();
       return;
     }
 
     try {
       state.parsedFiles = await ExcelMerger.readFiles(state.rawFiles, state.options);
+      updateDedupKeyOptions();
       reGroupAndRender();
+
+      // UI 상태 전환: 우측 패널 가이드 -> 데이터 건전성 대시보드로 전환
+      panelEmptyGuide.style.display = 'none';
+      panelLoadedHealth.style.display = 'flex';
       dashboardSection.style.display = 'block';
     } catch (err) {
       console.error(err);
-      showToast('파일 분석 중 오류가 발생했습니다: ' + err.message, 'error');
+      showToast('파일 분석 중 오류 발생: ' + err.message, 'error');
     }
+  }
+
+  // 중복 키 컬럼 셀렉트박스 갱신
+  function updateDedupKeyOptions() {
+    const currentVal = selectDedupKey.value;
+    selectDedupKey.innerHTML = '<option value="">전체 컬럼 내용 기준</option>';
+
+    const allHeaders = new Set();
+    state.parsedFiles.forEach(f => {
+      f.headers.forEach(h => allHeaders.add(h));
+    });
+
+    allHeaders.forEach(h => {
+      const opt = document.createElement('option');
+      opt.value = h;
+      opt.textContent = `단일 컬럼: [${h}]`;
+      if (h === currentVal) opt.selected = true;
+      selectDedupKey.appendChild(opt);
+    });
   }
 
   // 그룹화 및 렌더링
   function reGroupAndRender() {
     state.groups = ExcelMerger.groupBySchema(state.parsedFiles, state.options);
-    
-    // 유효한 첫 번째 그룹을 기본 활성 탭으로 지정
+
     const firstValid = state.groups.find(g => !g.isError && g.files.length > 0);
     state.activeGroupId = firstValid ? firstValid.id : null;
     state.currentPage = 1;
@@ -238,31 +380,72 @@
   // 전체 화면 렌더링
   function renderAll() {
     renderStats();
+    renderHealthDashboard();
     renderGroupCards();
     renderPreview();
+    renderHealthTab();
+    renderHistoryTab();
   }
 
-  // 대시보드 통계 렌더링
+  // 통계 렌더링
   function renderStats() {
     const totalFiles = state.parsedFiles.length;
     const validGroups = state.groups.filter(g => !g.isError);
-    
+
     let totalRows = 0;
+    let totalDups = 0;
     validGroups.forEach(g => {
-      const merged = ExcelMerger.mergeGroup(g, state.options);
+      const merged = g.customMergedData || ExcelMerger.mergeGroup(g, state.options);
       totalRows += merged.totalMergedRows;
+      totalDups += merged.duplicateCount;
     });
 
     statTotalFiles.textContent = `${totalFiles}개`;
     statTotalGroups.textContent = `${validGroups.length}종류`;
     statTotalRows.textContent = `${totalRows.toLocaleString()}행`;
+    statDupRows.textContent = `${totalDups.toLocaleString()}행`;
     groupsCountBadge.textContent = `${validGroups.length}개 규격`;
+  }
+
+  // 우측 데이터 건전성 대시보드 렌더링
+  function renderHealthDashboard() {
+    const activeGroup = state.groups.find(g => g.id === state.activeGroupId);
+    if (!activeGroup || activeGroup.isError) return;
+
+    const merged = activeGroup.customMergedData || ExcelMerger.mergeGroup(activeGroup, state.options);
+    const health = ExcelMerger.analyzeDataHealth(merged);
+
+    metricTotalCells.textContent = health.totalCells.toLocaleString();
+    metricValidCells.textContent = (health.totalCells - health.emptyCells).toLocaleString();
+    metricEmptyCells.textContent = health.emptyCells.toLocaleString();
+
+    healthOverallBadge.textContent = `채움률 ${health.overallFillRate}%`;
+    healthOverallBadge.className = `badge ${health.overallFillRate >= 90 ? 'badge-files' : 'badge-rows'}`;
+
+    healthColumnsList.innerHTML = '';
+    health.columnsHealth.forEach(col => {
+      const fillClass = col.fillRate >= 90 ? 'fill-high' : col.fillRate >= 70 ? 'fill-mid' : 'fill-low';
+      const item = document.createElement('div');
+      item.className = 'health-col-item';
+      item.innerHTML = `
+        <div class="health-col-header">
+          <span class="health-col-name">
+            ${escapeHtml(col.column)}
+            <span class="col-type-tag">${escapeHtml(col.detectedType)}</span>
+          </span>
+          <span class="health-col-rate">${col.fillRate}% (${col.validCount}/${col.totalRows}행)</span>
+        </div>
+        <div class="health-bar">
+          <div class="health-fill ${fillClass}" style="width: ${col.fillRate}%;"></div>
+        </div>
+      `;
+      healthColumnsList.appendChild(item);
+    });
   }
 
   // 규격 그룹 카드 렌더링
   function renderGroupCards() {
     groupsGrid.innerHTML = '';
-
     const validGroups = state.groups.filter(g => !g.isError);
 
     if (validGroups.length === 0) {
@@ -278,17 +461,15 @@
     const borderColors = ['border-accent-1', 'border-accent-2', 'border-accent-3', 'border-accent-4', 'border-accent-5'];
 
     validGroups.forEach((group, idx) => {
-      const merged = ExcelMerger.mergeGroup(group, state.options);
+      const merged = group.customMergedData || ExcelMerger.mergeGroup(group, state.options);
       const colorClass = borderColors[idx % borderColors.length];
 
       const card = document.createElement('div');
       card.className = `schema-card ${colorClass}`;
       card.id = `card_${group.id}`;
 
-      // 컬럼 태그 목록 HTML
       const colTagsHtml = group.canonicalHeaders.map(col => `<span class="col-tag" title="${escapeHtml(col)}">${escapeHtml(col)}</span>`).join('');
 
-      // 포함 파일 목록 HTML
       const filesListHtml = group.files.map(f => {
         const sizeKb = (f.fileSize / 1024).toFixed(1);
         return `
@@ -307,9 +488,7 @@
 
       card.innerHTML = `
         <div class="schema-card-header">
-          <div class="group-title-box">
-            <span class="group-title">${escapeHtml(group.name)}</span>
-          </div>
+          <span class="group-title">${escapeHtml(group.name)}</span>
           <div class="group-badges">
             <span class="badge badge-files">${group.files.length}개 파일</span>
             <span class="badge badge-rows">${merged.totalMergedRows}행</span>
@@ -334,7 +513,7 @@
 
         <div class="card-actions">
           <button type="button" class="btn btn-secondary btn-preview btn-preview-group" data-group-id="${group.id}">
-            🔍 병합 데이터 미리보기
+            🔍 실시간 데이터 미리보기
           </button>
           <button type="button" class="btn btn-outline-emerald btn-download-xlsx" data-group-id="${group.id}">
             📥 엑셀 (.xlsx)
@@ -345,30 +524,26 @@
         </div>
       `;
 
-      // 파일 개별 삭제 버튼 리스너
       card.querySelectorAll('.btn-remove-file').forEach(btn => {
         btn.addEventListener('click', (e) => {
           e.stopPropagation();
-          const fileId = btn.dataset.fileId;
-          removeFileById(fileId);
+          removeFileById(btn.dataset.fileId);
         });
       });
 
-      // 미리보기 버튼 리스너
       card.querySelector('.btn-preview-group').addEventListener('click', () => {
         state.activeGroupId = group.id;
         state.currentPage = 1;
         renderPreview();
-        // 부드러운 스크롤 이동
+        renderHealthDashboard();
+        renderHealthTab();
         document.querySelector('.preview-section').scrollIntoView({ behavior: 'smooth' });
       });
 
-      // 개별 XLSX 다운로드 리스너
       card.querySelector('.btn-download-xlsx').addEventListener('click', () => {
         downloadSingleGroup(group, 'xlsx');
       });
 
-      // 개별 CSV 다운로드 리스너
       card.querySelector('.btn-download-csv').addEventListener('click', () => {
         downloadSingleGroup(group, 'csv');
       });
@@ -383,7 +558,7 @@
     if (!fileToRemove) return;
 
     state.rawFiles = state.rawFiles.filter(f => f.name !== fileToRemove.fileName);
-    showToast(`'${fileToRemove.fileName}' 파일이 목록에서 제외되었습니다.`, 'info');
+    showToast(`'${fileToRemove.fileName}' 파일이 제외되었습니다.`, 'info');
 
     if (state.rawFiles.length === 0) {
       resetApp();
@@ -392,13 +567,22 @@
     }
   }
 
-  // 미리보기 탭 및 테이블 전체 렌더링
+  // 메인 탭 전환 처리
+  function switchMainTab(tabKey) {
+    tabContentPreview.style.display = tabKey === 'preview' ? 'block' : 'none';
+    tabContentHealth.style.display = tabKey === 'health' ? 'block' : 'none';
+    tabContentHistory.style.display = tabKey === 'history' ? 'block' : 'none';
+
+    if (tabKey === 'health') renderHealthTab();
+    if (tabKey === 'history') renderHistoryTab();
+  }
+
+  // 미리보기 탭 및 테이블 렌더링
   function renderPreview() {
     renderPreviewTabs();
     renderPreviewTableOnly();
   }
 
-  // 미리보기 탭 렌더링
   function renderPreviewTabs() {
     previewTabs.innerHTML = '';
     const validGroups = state.groups.filter(g => !g.isError);
@@ -406,7 +590,7 @@
     validGroups.forEach(group => {
       const tabBtn = document.createElement('button');
       tabBtn.type = 'button';
-      tabBtn.className = `tab-btn ${group.id === state.activeGroupId ? 'active' : ''}`;
+      tabBtn.className = `group-tab-btn ${group.id === state.activeGroupId ? 'active' : ''}`;
       tabBtn.textContent = `${group.name} (${group.files.length}개 파일)`;
       tabBtn.addEventListener('click', () => {
         state.activeGroupId = group.id;
@@ -414,34 +598,27 @@
         state.previewSearch = '';
         if (previewSearchInput) previewSearchInput.value = '';
         renderPreview();
+        renderHealthDashboard();
+        renderHealthTab();
       });
       previewTabs.appendChild(tabBtn);
     });
   }
 
-  // 미리보기 테이블 및 페이지네이션 렌더링
   function renderPreviewTableOnly() {
     const activeGroup = state.groups.find(g => g.id === state.activeGroupId);
 
     if (!activeGroup || activeGroup.isError) {
       previewTableHead.innerHTML = '';
-      previewTableBody.innerHTML = `
-        <tr>
-          <td colspan="10" class="empty-state">
-            <div class="empty-state-icon">📋</div>
-            <p>선택된 규격 그룹이 없습니다.</p>
-          </td>
-        </tr>
-      `;
+      previewTableBody.innerHTML = `<tr><td colspan="10" class="empty-state"><p>선택된 규격 그룹이 없습니다.</p></td></tr>`;
       paginationInfo.textContent = '데이터 0건';
       paginationPages.innerHTML = '';
       return;
     }
 
-    const mergedData = ExcelMerger.mergeGroup(activeGroup, state.options);
+    const mergedData = activeGroup.customMergedData || ExcelMerger.mergeGroup(activeGroup, state.options);
     const { headers, rows } = mergedData;
 
-    // 검색 필터 적용
     let filteredRows = rows;
     if (state.previewSearch) {
       const q = state.previewSearch;
@@ -450,7 +627,6 @@
       });
     }
 
-    // 헤더 행 생성
     previewTableHead.innerHTML = '';
     const trHead = document.createElement('tr');
     headers.forEach(h => {
@@ -461,7 +637,6 @@
     });
     previewTableHead.appendChild(trHead);
 
-    // 페이지네이션 계산
     const totalCount = filteredRows.length;
     const totalPages = Math.max(1, Math.ceil(totalCount / state.pageSize));
     if (state.currentPage > totalPages) state.currentPage = totalPages;
@@ -470,7 +645,6 @@
     const endIdx = Math.min(startIdx + state.pageSize, totalCount);
     const pagedRows = filteredRows.slice(startIdx, endIdx);
 
-    // 테이블 본문 생성
     previewTableBody.innerHTML = '';
 
     if (pagedRows.length === 0) {
@@ -500,23 +674,19 @@
       });
     }
 
-    // 페이지네이션 정보 갱신
     if (totalCount === 0) {
       paginationInfo.textContent = '데이터 0건';
     } else {
       paginationInfo.textContent = `데이터 총 ${totalCount.toLocaleString()}건 중 ${startIdx + 1} - ${endIdx} 표시`;
     }
 
-    // 페이지 번호 버튼 렌더링
     renderPaginationButtons(totalPages);
   }
 
-  // 페이지네이션 번호 버튼 렌더링
   function renderPaginationButtons(totalPages) {
     paginationPages.innerHTML = '';
     if (totalPages <= 1) return;
 
-    // 이전 버튼
     const prevBtn = document.createElement('button');
     prevBtn.type = 'button';
     prevBtn.className = 'page-btn';
@@ -530,7 +700,6 @@
     });
     paginationPages.appendChild(prevBtn);
 
-    // 표시할 페이지 번호 범위 계산 (최대 5개 버튼)
     let startPage = Math.max(1, state.currentPage - 2);
     let endPage = Math.min(totalPages, startPage + 4);
     if (endPage - startPage < 4) {
@@ -549,7 +718,6 @@
       paginationPages.appendChild(pageBtn);
     }
 
-    // 다음 버튼
     const nextBtn = document.createElement('button');
     nextBtn.type = 'button';
     nextBtn.className = 'page-btn';
@@ -564,23 +732,81 @@
     paginationPages.appendChild(nextBtn);
   }
 
+  // 탭 2: 컬럼별 상세 분석 리포트 렌더링
+  function renderHealthTab() {
+    const activeGroup = state.groups.find(g => g.id === state.activeGroupId);
+    if (!activeGroup || activeGroup.isError) {
+      healthTableBody.innerHTML = `<tr><td colspan="8" class="empty-state">선택된 규격이 없습니다.</td></tr>`;
+      return;
+    }
+
+    const merged = activeGroup.customMergedData || ExcelMerger.mergeGroup(activeGroup, state.options);
+    const health = ExcelMerger.analyzeDataHealth(merged);
+
+    healthTableBody.innerHTML = '';
+    health.columnsHealth.forEach(col => {
+      const tr = document.createElement('tr');
+      const samplesText = col.samples.length > 0 ? col.samples.join(', ') : '-';
+      tr.innerHTML = `
+        <td style="font-weight: 600; color: #ffffff;">${escapeHtml(col.column)}</td>
+        <td><span class="col-type-tag">${escapeHtml(col.detectedType)}</span></td>
+        <td>${col.totalRows.toLocaleString()}</td>
+        <td style="color: #34d399;">${col.validCount.toLocaleString()}</td>
+        <td style="color: ${col.emptyCount > 0 ? '#f43f5e' : '#94a3b8'};">${col.emptyCount.toLocaleString()}</td>
+        <td style="font-weight: 700; color: ${col.fillRate >= 90 ? '#34d399' : '#f59e0b'};">${col.fillRate}%</td>
+        <td>${col.uniqueCount.toLocaleString()}개</td>
+        <td style="color: #94a3b8; max-width: 250px; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(samplesText)}">${escapeHtml(samplesText)}</td>
+      `;
+      healthTableBody.appendChild(tr);
+    });
+  }
+
+  // 탭 3: 히스토리 렌더링
+  function renderHistoryTab() {
+    historyList.innerHTML = '';
+    if (state.history.length === 0) {
+      historyList.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-state-icon">🕒</div>
+          <p>아직 다운로드된 병합 작업 기록이 없습니다.</p>
+        </div>
+      `;
+      return;
+    }
+
+    state.history.forEach(item => {
+      const div = document.createElement('div');
+      div.className = 'history-item';
+      div.innerHTML = `
+        <div>
+          <div class="history-title">📄 ${escapeHtml(item.title)}</div>
+          <div class="history-meta">${escapeHtml(item.details)}</div>
+        </div>
+        <div style="font-size: 0.75rem; color: var(--text-muted);">${escapeHtml(item.timestamp)}</div>
+      `;
+      historyList.appendChild(div);
+    });
+  }
+
   // 단일 규격 다운로드
   function downloadSingleGroup(group, format = 'xlsx') {
     try {
-      showToast(`${group.name} 통합 파일 다운로드를 준비 중입니다...`, 'info');
+      showToast(`${group.name} 다운로드를 준비 중입니다...`, 'info');
+      const filename = `${group.name}_통합_${group.files.length}개파일.${format}`;
       if (format === 'xlsx') {
-        ExcelMerger.downloadGroupAsXLSX(group, state.options);
+        ExcelMerger.downloadGroupAsXLSX(group, state.options, filename);
       } else {
-        ExcelMerger.downloadGroupAsCSV(group, state.options);
+        ExcelMerger.downloadGroupAsCSV(group, state.options, filename);
       }
+      addHistoryItem(filename, `${group.name} (${group.files.length}개 파일 통합)`);
       showToast(`${group.name} 다운로드가 완료되었습니다.`, 'success');
     } catch (err) {
       console.error(err);
-      showToast('다운로드 생성 중 오류가 발생했습니다: ' + err.message, 'error');
+      showToast('다운로드 생성 중 오류 발생: ' + err.message, 'error');
     }
   }
 
-  // 전체 ZIP 일괄 다운로드
+  // 전체 ZIP 다운로드
   async function downloadAllAsZip() {
     const validGroups = state.groups.filter(g => !g.isError);
     if (validGroups.length === 0) {
@@ -590,15 +816,111 @@
 
     try {
       showToast('전체 규격 파일들을 ZIP으로 압축 중입니다...', 'info');
-      await ExcelMerger.downloadAllAsZip(state.groups, state.options);
+      const zipName = `엑셀_규격별_병합_${validGroups.length}개규격.zip`;
+      await ExcelMerger.downloadAllAsZip(state.groups, state.options, zipName);
+      addHistoryItem(zipName, `전체 ${validGroups.length}개 규격 일괄 압축 다운로드`);
       showToast('전체 규격 ZIP 일괄 다운로드가 완료되었습니다!', 'success');
     } catch (err) {
       console.error(err);
-      showToast('ZIP 생성 중 오류가 발생했습니다: ' + err.message, 'error');
+      showToast('ZIP 생성 중 오류 발생: ' + err.message, 'error');
     }
   }
 
-  // 앱 리셋
+  // 수동 규격 통합 모달 열기
+  function openMappingModal() {
+    const validGroups = state.groups.filter(g => !g.isError);
+    if (validGroups.length < 2) {
+      showToast('수동 통합을 하려면 서로 다른 규격 그룹이 최소 2개 이상 필요합니다.', 'error');
+      return;
+    }
+
+    selectTargetGroup.innerHTML = '';
+    selectSourceGroup.innerHTML = '';
+
+    validGroups.forEach((g, i) => {
+      const opt1 = document.createElement('option');
+      opt1.value = g.id;
+      opt1.textContent = `${g.name} (${g.canonicalHeaders.join(', ')})`;
+      if (i === 0) opt1.selected = true;
+      selectTargetGroup.appendChild(opt1);
+
+      const opt2 = document.createElement('option');
+      opt2.value = g.id;
+      opt2.textContent = `${g.name} (${g.canonicalHeaders.join(', ')})`;
+      if (i === 1) opt2.selected = true;
+      selectSourceGroup.appendChild(opt2);
+    });
+
+    updateMappingRows();
+    modalSchemaMapping.style.display = 'flex';
+  }
+
+  function updateMappingRows() {
+    const targetId = selectTargetGroup.value;
+    const sourceId = selectSourceGroup.value;
+
+    if (targetId === sourceId) {
+      mappingList.innerHTML = `<div style="color: #fb7185; font-size: 0.85rem; padding: 0.5rem;">서로 다른 두 개의 규격을 선택해 주세요.</div>`;
+      return;
+    }
+
+    const targetGroup = state.groups.find(g => g.id === targetId);
+    const sourceGroup = state.groups.find(g => g.id === sourceId);
+
+    mappingList.innerHTML = '';
+    targetGroup.canonicalHeaders.forEach(targetCol => {
+      const row = document.createElement('div');
+      row.className = 'mapping-row';
+
+      let optionsHtml = `<option value="">(매핑 안함 - 빈값 처리)</option>`;
+      sourceGroup.canonicalHeaders.forEach(sourceCol => {
+        // 이름이 유사하거나 같으면 자동 매핑 선택
+        const isMatched = targetCol.toLowerCase().trim() === sourceCol.toLowerCase().trim() ||
+          (targetCol.includes('연락처') && sourceCol.includes('핸드폰')) ||
+          (targetCol.includes('고객') && sourceCol.includes('성함'));
+        optionsHtml += `<option value="${escapeHtml(sourceCol)}" ${isMatched ? 'selected' : ''}>${escapeHtml(sourceCol)}</option>`;
+      });
+
+      row.innerHTML = `
+        <span style="font-weight: 600; color: #38bdf8;">[기준] ${escapeHtml(targetCol)}</span>
+        <span style="color: var(--text-muted);">←</span>
+        <select class="select-control mapping-select" data-target-col="${escapeHtml(targetCol)}">
+          ${optionsHtml}
+        </select>
+      `;
+      mappingList.appendChild(row);
+    });
+  }
+
+  function applySchemaMapping() {
+    const targetId = selectTargetGroup.value;
+    const sourceId = selectSourceGroup.value;
+    if (targetId === sourceId) {
+      showToast('서로 다른 규격을 선택해 주세요.', 'error');
+      return;
+    }
+
+    const targetGroup = state.groups.find(g => g.id === targetId);
+    const sourceGroup = state.groups.find(g => g.id === sourceId);
+
+    const mapping = {};
+    document.querySelectorAll('.mapping-select').forEach(sel => {
+      const targetCol = sel.dataset.targetCol;
+      const sourceCol = sel.value;
+      if (sourceCol) mapping[targetCol] = sourceCol;
+    });
+
+    const mergedCombinedGroup = ExcelMerger.mergeGroupsWithMapping(targetGroup, sourceGroup, mapping, state.options);
+    mergedCombinedGroup.id = 'group_mapped_' + Math.random().toString(36).substr(2, 9);
+    state.groups.push(mergedCombinedGroup);
+    state.activeGroupId = mergedCombinedGroup.id;
+
+    modalSchemaMapping.style.display = 'none';
+    renderAll();
+    showToast(`'${mergedCombinedGroup.name}' 통합 규격이 성공적으로 생성되었습니다!`, 'success');
+  }
+
+  // 초기화
   function resetApp() {
     state.rawFiles = [];
     state.parsedFiles = [];
@@ -608,10 +930,11 @@
     state.previewSearch = '';
 
     fileInput.value = '';
+    panelEmptyGuide.style.display = 'flex';
+    panelLoadedHealth.style.display = 'none';
     dashboardSection.style.display = 'none';
   }
 
-  // 유틸리티: HTML 이스케이프
   function escapeHtml(text) {
     if (text === undefined || text === null) return '';
     return String(text)
@@ -622,7 +945,6 @@
       .replace(/'/g, '&#039;');
   }
 
-  // 토스트 알림 표시
   function showToast(message, type = 'info') {
     const toast = document.createElement('div');
     toast.className = `toast toast-${type}`;
@@ -644,7 +966,6 @@
     }, 3200);
   }
 
-  // DOM 준비 시 초기화
   document.addEventListener('DOMContentLoaded', () => {
     initEvents();
   });
