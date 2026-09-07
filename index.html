@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>동일 규격 엑셀 자동 병합기 | Excel Schema Merger</title>
+  <meta name="description" content="엑셀 파일 여러 개를 업로드하면 동일한 규격(컬럼 헤더)끼리 자동으로 분류하여 하나의 파일로 합쳐주는 초고속 무설치 웹 애플리케이션입니다.">
+  <meta name="keywords" content="엑셀 병합, 동일 규격, 엑셀 합치기, excel merger, xlsx merger, sheetjs">
+  
+  <!-- Pretendard Web Font -->
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
+  
+  <!-- Custom CSS Design System -->
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="brand-wrapper">
+        <div class="brand-icon">
+          <span>📊</span>
+        </div>
+        <div class="brand-titles">
+          <h1>
+            동일 규격 엑셀 자동 병합기
+            <span class="badge-version">v1.0</span>
+          </h1>
+          <p>여러 엑셀 파일을 올리면 컬럼 규격별로 자동 분류하여 하나로 깔끔하게 합쳐줍니다.</p>
+        </div>
+      </div>
+      <div class="header-badges">
+        <div class="security-badge" title="모든 파일 분석 및 병합은 서버 전송 없이 내 컴퓨터 브라우저 안에서만 안전하게 실행됩니다.">
+          <span class="dot"></span>
+          <span>100% 브라우저 로컬 안전 처리 (데이터 유출 0%)</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Upload & Config Card -->
+    <section class="upload-card">
+      <div id="dropZone" class="drop-zone">
+        <input type="file" id="fileInput" multiple accept=".xlsx, .xls, .csv" style="display: none;">
+        <div class="drop-zone-icon">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="17 8 12 3 7 8"></polyline>
+            <line x1="12" y1="3" x2="12" y2="15"></line>
+          </svg>
+        </div>
+        <h2 class="drop-zone-title">엑셀 또는 CSV 파일을 이곳에 드래그하거나 선택하세요</h2>
+        <p class="drop-zone-subtitle">지원 형식: .xlsx, .xls, .csv (파일 개수 제한 없음)</p>
+        
+        <div class="drop-actions">
+          <button type="button" id="btnSelectFiles" class="btn btn-primary">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+              <line x1="12" y1="18" x2="12" y2="12"></line>
+              <line x1="9" y1="15" x2="15" y2="15"></line>
+            </svg>
+            컴퓨터에서 파일 선택
+          </button>
+          
+          <button type="button" id="btnLoadSample" class="btn btn-outline-emerald" title="샘플 파일 4개(2가지 규격)를 즉시 로드하여 기능을 테스트합니다.">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+            </svg>
+            샘플 데이터로 즉시 체험하기
+          </button>
+        </div>
+      </div>
+
+      <!-- Advanced Options Panel -->
+      <div class="options-panel">
+        <div class="option-group">
+          <label class="option-label" for="selectMatchMode">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon>
+            </svg>
+            동일 규격 판별 기준
+          </label>
+          <select id="selectMatchMode" class="select-control">
+            <option value="exact" selected>완전 일치 (컬럼명 + 순서 동일)</option>
+            <option value="flexible">유연한 일치 (순서 무관, 컬럼명 동일)</option>
+          </select>
+        </div>
+
+        <div class="option-group">
+          <label class="option-label" for="selectHeaderRow">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+            헤더(컬럼명) 위치
+          </label>
+          <select id="selectHeaderRow" class="select-control">
+            <option value="0" selected>1번째 행 (기본)</option>
+            <option value="1">2번째 행</option>
+            <option value="2">3번째 행</option>
+            <option value="3">4번째 행</option>
+          </select>
+        </div>
+
+        <div class="option-group">
+          <label class="option-label">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 20h9"></path>
+              <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
+            </svg>
+            병합 세부 옵션
+          </label>
+          <div class="checkbox-list">
+            <label class="checkbox-item" title="병합 결과 첫 번째 열에 각 데이터의 출처 파일명을 기록합니다.">
+              <input type="checkbox" id="chkAddSource" checked>
+              <span>_원본파일명 열 자동 추가</span>
+            </label>
+            <label class="checkbox-item" title="내용이 완전히 동일한 중복 데이터 행을 자동으로 1개만 남기고 제거합니다.">
+              <input type="checkbox" id="chkRemoveDups">
+              <span>중복 데이터 행 자동 제거</span>
+            </label>
+            <label class="checkbox-item" title="텍스트 앞뒤의 불필요한 공백을 제거합니다.">
+              <input type="checkbox" id="chkTrimText" checked>
+              <span>텍스트 앞뒤 공백(Trim) 정리</span>
+            </label>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Dashboard Actions & Summary (Hidden initially) -->
+    <div id="dashboardSection" style="display: none;">
+      <div class="dashboard-actions">
+        <div class="stats-container">
+          <div class="stat-pill">
+            <span class="stat-label">업로드 파일</span>
+            <span id="statTotalFiles" class="stat-val">0개</span>
+          </div>
+          <div class="stat-pill">
+            <span class="stat-label">감지된 규격</span>
+            <span id="statTotalGroups" class="stat-val" style="color: #38bdf8;">0종류</span>
+          </div>
+          <div class="stat-pill">
+            <span class="stat-label">총 데이터 행</span>
+            <span id="statTotalRows" class="stat-val" style="color: #34d399;">0행</span>
+          </div>
+        </div>
+
+        <div class="action-buttons">
+          <button type="button" id="btnResetAll" class="btn btn-secondary btn-sm" title="모든 파일을 비우고 새로 시작합니다.">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+              <path d="M3 3v5h5"></path>
+            </svg>
+            초기화
+          </button>
+          
+          <button type="button" id="btnDownloadAllZip" class="btn btn-primary" title="모든 규격 그룹을 각각 엑셀 파일로 묶어 ZIP 압축 파일로 다운로드합니다.">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+            전체 규격 ZIP 일괄 다운로드
+          </button>
+        </div>
+      </div>
+
+      <!-- Schema Group Cards Container -->
+      <section style="margin-bottom: 2.5rem;">
+        <h3 class="section-title">
+          <span>분류된 규격별 파일 그룹</span>
+          <span id="groupsCountBadge" class="section-title-badge">0개 규격</span>
+        </h3>
+        <div id="groupsGrid" class="groups-grid">
+          <!-- Dynamic cards injected here -->
+        </div>
+      </section>
+
+      <!-- Live Merged Data Inspector & Preview -->
+      <section class="preview-section">
+        <div class="preview-header">
+          <div class="preview-tabs" id="previewTabs">
+            <!-- Dynamic tabs for Group 1, Group 2, etc. -->
+          </div>
+
+          <div class="table-controls">
+            <div class="search-box">
+              <span class="search-icon">🔍</span>
+              <input type="text" id="previewSearchInput" class="input-control" placeholder="미리보기 데이터 검색...">
+            </div>
+            <select id="previewPageSize" class="select-control" style="width: auto;">
+              <option value="10">10개씩 보기</option>
+              <option value="25" selected>25개씩 보기</option>
+              <option value="50">50개씩 보기</option>
+              <option value="100">100개씩 보기</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="table-responsive">
+          <table class="data-table" id="previewTable">
+            <thead id="previewTableHead">
+              <!-- Headers injected here -->
+            </thead>
+            <tbody id="previewTableBody">
+              <!-- Rows injected here -->
+            </tbody>
+          </table>
+        </div>
+
+        <div class="pagination-wrapper">
+          <div id="paginationInfo">데이터 0건 중 0 - 0 표시</div>
+          <div class="pagination-pages" id="paginationPages">
+            <!-- Dynamic page buttons -->
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toastContainer" class="toast-container"></div>
+
+  <!-- Offline Libraries (Local with CDN fallback) -->
+  <script src="lib/xlsx.full.min.js"></script>
+  <script>
+    if (typeof XLSX === 'undefined') {
+      document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"><\/script>');
+    }
+  </script>
+  
+  <script src="lib/jszip.min.js"></script>
+  <script>
+    if (typeof JSZip === 'undefined') {
+      document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"><\/script>');
+    }
+  </script>
+
+  <!-- Application Logic -->
+  <script src="js/excel-merger.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
